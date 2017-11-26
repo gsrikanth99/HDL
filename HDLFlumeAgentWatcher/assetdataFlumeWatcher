@@ -1,0 +1,53 @@
+
+###########################################################################################################################
+#                                                                                                                         #
+#----------------------------------------------------------------------------------------------------                     #
+# This Shell script is created to check connection status between RabbitMQ and flume.                                     #
+# Input                     :
+# Output                    :                                                                                             #
+# *project Name             : Hologic Data Lake                                                                           #
+#  *File Name                 : AssetdataFlumewatcher.sh
+#  *Author                    : Ankit Shah
+#  *Description               : Checks the Flume agent log and if identifies keywords like 'shutdown' or connection error
+#                                existing flume agent process will be killed and restarted.
+#  *Modification History :                                                                                                #
+#  *-------------------------------------------------------------------------------------------                           #
+#  * ------------------------------------------------------------------------------------------                           #
+# * Modified by                 Date                  Version.No.          Description                                    #
+#  *Ankit Shah                  Sept. 06, 2017          1.0                  Initial Release                             #
+#                                                                                                                         #
+# *--------------------------------------------------------------------------------------------                           #
+# *--------------------------------------------------------------------------------------------                           #
+# */                                                                                                                      #
+#                                                                                                                         #
+#                                                                                                                         #
+###########################################################################################################################
+
+cd /root/HDL/StreamingCode/FlumeAgentWatcher
+source ./property/axedaagent.properties
+echo "Properties file loaded successfully"
+# Get the latest log file name
+CHECKFILE=`ls -t ${LOGPATH}/${asset}*| head -n1`
+FlumeAgentExists=`ps -ef|grep $flumeclassname | grep $flumeagentI | grep -v grep | awk '{ print $2 }'|wc -l`
+
+if [ -f "$CHECKFILE" ]; then
+#Check for keyword 'shutdown' in log file
+        SHUTDOWN=`grep -i $errorpatternI $CHECKFILE|wc -l`
+#Check for keyword 'connection error' in log file
+
+ CONNERROR=`grep -i '$errorpatternII' $CHECKFILE|wc -l`
+else
+        echo "LOG FILE DOES NOT EXIST"
+fi
+
+#Start flume agent if it is not running
+if [ "$FlumeAgentExists" -eq 0 ]; then
+        nohup flume-ng agent  -c  $configpath  -f ${configpath}/${asset}.conf  -n $flumeagentI -Dflume.root.logger=INFO,console 2>&1 |tee >> ${LOGPATH}/${asset}_`date +%Y%m%d%H%M%S`.log &
+echo ""|mail -s "Flume agent $flumeagentI was not running and now has been started sucessfully<EOM>" $toaddress
+
+#Kills the existing flume agent process, if found shutdown or connection error keyword in logs
+elif [ "$SHUTDOWN" -gt 0 -o "$CONNERROR" -gt 0 ]; then
+        kill -9 $(ps -ef|grep $flumeclassname | grep $flumeagentI | grep -v grep | awk '{ print $2 }')
+        nohup flume-ng agent  -c  $configpath  -f ${configpath}/${asset}.conf  -n $flumeagentI -Dflume.root.logger=INFO,console 2>&1 |tee >>${LOGPATH}/${asset}_`date +%Y%m%d%H%M%S`.log &
+echo ""|mail -s "Flume agent $flumeagentI has been restarted sucessfully<EOM>" $toaddress
+fi
